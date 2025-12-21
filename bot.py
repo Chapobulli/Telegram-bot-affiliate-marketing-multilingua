@@ -97,7 +97,7 @@ class AffiliateBot:
         # Inizializza storage se è la prima volta
         if 'photos' not in context.user_data:
             context.user_data['photos'] = []
-            context.user_data['media_group_buffer'] = {}
+            context.user_data['media_groups'] = {}
 
         # Se è parte di un media group
         if message.media_group_id:
@@ -107,31 +107,39 @@ class AffiliateBot:
             if urls and not context.user_data.get('referral_link'):
                 context.user_data['referral_link'] = urls[0]
             
-            # Aggiungi foto al buffer del media group
-            if media_group_id not in context.user_data['media_group_buffer']:
-                context.user_data['media_group_buffer'][media_group_id] = []
+            # Inizializza il gruppo se non esiste
+            if media_group_id not in context.user_data['media_groups']:
+                context.user_data['media_groups'][media_group_id] = {
+                    'photos': [],
+                    'last_update': asyncio.get_event_loop().time()
+                }
             
+            # Aggiungi foto al gruppo
             if message.photo:
                 photo = message.photo[-1]
-                context.user_data['media_group_buffer'][media_group_id].append(photo.file_id)
-                logger.info(f"Media group {media_group_id}: aggiunta foto {len(context.user_data['media_group_buffer'][media_group_id])}")
+                context.user_data['media_groups'][media_group_id]['photos'].append(photo.file_id)
+                context.user_data['media_groups'][media_group_id]['last_update'] = asyncio.get_event_loop().time()
+                logger.info(f"Media group {media_group_id}: aggiunta foto {len(context.user_data['media_groups'][media_group_id]['photos'])}")
             
-            # Aspetta 1.5 secondi per altre foto dello stesso gruppo
-            await asyncio.sleep(1.5)
+            # Aspetta 2 secondi per vedere se arrivano altre foto
+            await asyncio.sleep(2.0)
             
-            # Verifica se nel frattempo sono arrivate altre foto
-            # Se sì, lascia che l'ultimo messaggio del gruppo gestisca la risposta
-            if message.photo and context.user_data['media_group_buffer'][media_group_id][-1] != photo.file_id:
-                # Non sono l'ultima foto del gruppo, non rispondere
-                logger.info(f"Media group {media_group_id}: non ultima foto, skip risposta")
+            # Controlla se sono arrivate altre foto nel frattempo
+            current_time = asyncio.get_event_loop().time()
+            time_since_last = current_time - context.user_data['media_groups'][media_group_id]['last_update']
+            
+            # Se sono passati meno di 1.5 secondi dall'ultimo aggiornamento, altre foto stanno arrivando
+            if time_since_last < 1.5:
+                logger.info(f"Media group {media_group_id}: altre foto in arrivo, aspetto...")
                 return STATE_WAITING_PRODUCT_NAME
             
-            # Sono l'ultima foto (o l'unica): salva tutte le foto del gruppo
-            context.user_data['photos'] = context.user_data['media_group_buffer'][media_group_id]
-            logger.info(f"Media group {media_group_id}: completato con {len(context.user_data['photos'])} foto")
+            # Tutte le foto sono arrivate, salva il gruppo
+            context.user_data['photos'] = context.user_data['media_groups'][media_group_id]['photos']
+            num_photos = len(context.user_data['photos'])
+            logger.info(f"Media group {media_group_id}: completato con {num_photos} foto")
             
-            # Pulisci il buffer
-            context.user_data['media_group_buffer'] = {}
+            # Pulisci i media groups
+            del context.user_data['media_groups'][media_group_id]
         
         # Messaggio singolo (non parte di un media group)
         else:
