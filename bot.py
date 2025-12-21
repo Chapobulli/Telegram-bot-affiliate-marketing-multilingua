@@ -87,12 +87,13 @@ class AffiliateBot:
         
         # Controlla se il gruppo esiste ancora
         if media_group_id not in context.user_data.get('media_groups', {}):
+            logger.info(f"Media group {media_group_id}: non trovato in user_data")
             return
         
         # Salva le foto raccolte
         context.user_data['photos'] = context.user_data['media_groups'][media_group_id]['photos']
         num_photos = len(context.user_data['photos'])
-        logger.info(f"Media group {media_group_id}: completato con {num_photos} foto")
+        logger.info(f"Media group {media_group_id}: JOB ESEGUITO - completato con {num_photos} foto")
         
         # Rimuovi il gruppo processato
         del context.user_data['media_groups'][media_group_id]
@@ -145,12 +146,14 @@ class AffiliateBot:
             job_name = f"media_group_{media_group_id}"
             current_jobs = context.job_queue.get_jobs_by_name(job_name)
             for job in current_jobs:
+                logger.info(f"Media group {media_group_id}: rimosso job precedente")
                 job.schedule_removal()
             
-            # Schedula nuovo job per processare il gruppo tra 1.5 secondi
+            # Schedula nuovo job per processare il gruppo tra 3 secondi (aumentato per aspettare tutte le foto)
+            logger.info(f"Media group {media_group_id}: schedula job tra 3 secondi")
             context.job_queue.run_once(
                 self._process_media_group,
-                when=1.5,
+                when=3.0,
                 data={'media_group_id': media_group_id, 'chat_id': message.chat_id},
                 name=job_name,
                 chat_id=message.chat_id,
