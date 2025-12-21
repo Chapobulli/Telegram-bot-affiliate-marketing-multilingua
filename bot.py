@@ -94,32 +94,56 @@ class AffiliateBot:
         caption_or_text = (message.caption or message.text or "").strip()
         urls = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', caption_or_text)
 
-        # Inizializza storage
+        # Inizializza storage se è la prima volta
         if 'photos' not in context.user_data:
             context.user_data['photos'] = []
+            context.user_data['media_group_buffer'] = {}
 
-        # Aggiungi foto se presenti
-        if message.photo:
-            photo = message.photo[-1]
-            context.user_data['photos'].append(photo.file_id)
-        
-        # Se è parte di un media group, aspetta tutte le foto
+        # Se è parte di un media group
         if message.media_group_id:
-            # Salva il link se presente
-            if urls:
+            media_group_id = message.media_group_id
+            
+            # Salva il link se presente (solo dalla prima foto del gruppo)
+            if urls and not context.user_data.get('referral_link'):
                 context.user_data['referral_link'] = urls[0]
             
-            # Aspetta 2 secondi per ricevere tutte le foto del gruppo
-            context.user_data['media_group_id'] = message.media_group_id
-            await asyncio.sleep(2)
+            # Aggiungi foto al buffer del media group
+            if media_group_id not in context.user_data['media_group_buffer']:
+                context.user_data['media_group_buffer'][media_group_id] = []
             
-            # Verifica che siamo ancora nello stesso media group
-            if context.user_data.get('media_group_id') != message.media_group_id:
+            if message.photo:
+                photo = message.photo[-1]
+                context.user_data['media_group_buffer'][media_group_id].append(photo.file_id)
+                logger.info(f"Media group {media_group_id}: aggiunta foto {len(context.user_data['media_group_buffer'][media_group_id])}")
+            
+            # Aspetta 1.5 secondi per altre foto dello stesso gruppo
+            await asyncio.sleep(1.5)
+            
+            # Verifica se nel frattempo sono arrivate altre foto
+            # Se sì, lascia che l'ultimo messaggio del gruppo gestisca la risposta
+            if message.photo and context.user_data['media_group_buffer'][media_group_id][-1] != photo.file_id:
+                # Non sono l'ultima foto del gruppo, non rispondere
+                logger.info(f"Media group {media_group_id}: non ultima foto, skip risposta")
                 return STATE_WAITING_PRODUCT_NAME
+            
+            # Sono l'ultima foto (o l'unica): salva tutte le foto del gruppo
+            context.user_data['photos'] = context.user_data['media_group_buffer'][media_group_id]
+            logger.info(f"Media group {media_group_id}: completato con {len(context.user_data['photos'])} foto")
+            
+            # Pulisci il buffer
+            context.user_data['media_group_buffer'] = {}
         
-        # Se non è parte di un media group o abbiamo finito di aspettare
+        # Messaggio singolo (non parte di un media group)
+        else:
+            # Aggiungi foto se presente
+            if message.photo:
+                photo = message.photo[-1]
+                context.user_data['photos'].append(photo.file_id)
+        
+        # Verifica se abbiamo link
         if not urls and not context.user_data.get('referral_link'):
             await message.reply_text(self.messages['need_media_and_link'])
+            context.user_data.clear()
             return ConversationHandler.END
         
         # Salva il link se non già salvato
@@ -131,7 +155,7 @@ class AffiliateBot:
             await message.reply_text("📸 Inviami le foto del prodotto (puoi mandarne fino a 10).")
             return STATE_WAITING_PHOTOS
 
-        # Chiedi nome prodotto una sola volta
+        # Chiedi nome prodotto
         await message.reply_text(f"✅ {len(context.user_data['photos'])} foto ricevuta/e!\n\n✏️ Scrivi il nome del prodotto:")
         return STATE_WAITING_PRODUCT_NAME
     
