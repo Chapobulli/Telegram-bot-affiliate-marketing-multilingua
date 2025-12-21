@@ -79,6 +79,30 @@ class AffiliateBot:
         logger.info(f"Admin {user_id} ha avviato il bot")
         return ConversationHandler.END
     
+    async def _process_media_group(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Processa il media group dopo che tutte le foto sono arrivate"""
+        job = context.job
+        media_group_id = job.data['media_group_id']
+        chat_id = job.data['chat_id']
+        
+        # Controlla se il gruppo esiste ancora
+        if media_group_id not in context.user_data.get('media_groups', {}):
+            return
+        
+        # Salva le foto raccolte
+        context.user_data['photos'] = context.user_data['media_groups'][media_group_id]['photos']
+        num_photos = len(context.user_data['photos'])
+        logger.info(f"Media group {media_group_id}: completato con {num_photos} foto")
+        
+        # Rimuovi il gruppo processato
+        del context.user_data['media_groups'][media_group_id]
+        
+        # Invia il messaggio di conferma
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"✅ {num_photos} foto ricevuta/e!\n\n✏️ Scrivi il nome del prodotto:"
+        )
+
     async def handle_media_group(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """
         Handler per ricevere gruppo di foto o solo link
@@ -109,37 +133,32 @@ class AffiliateBot:
             
             # Inizializza il gruppo se non esiste
             if media_group_id not in context.user_data['media_groups']:
-                context.user_data['media_groups'][media_group_id] = {
-                    'photos': [],
-                    'last_update': asyncio.get_event_loop().time()
-                }
+                context.user_data['media_groups'][media_group_id] = {'photos': []}
             
             # Aggiungi foto al gruppo
             if message.photo:
                 photo = message.photo[-1]
                 context.user_data['media_groups'][media_group_id]['photos'].append(photo.file_id)
-                context.user_data['media_groups'][media_group_id]['last_update'] = asyncio.get_event_loop().time()
                 logger.info(f"Media group {media_group_id}: aggiunta foto {len(context.user_data['media_groups'][media_group_id]['photos'])}")
             
-            # Aspetta 2 secondi per vedere se arrivano altre foto
-            await asyncio.sleep(2.0)
+            # Rimuovi job precedente se esiste
+            job_name = f"media_group_{media_group_id}"
+            current_jobs = context.job_queue.get_jobs_by_name(job_name)
+            for job in current_jobs:
+                job.schedule_removal()
             
-            # Controlla se sono arrivate altre foto nel frattempo
-            current_time = asyncio.get_event_loop().time()
-            time_since_last = current_time - context.user_data['media_groups'][media_group_id]['last_update']
+            # Schedula nuovo job per processare il gruppo tra 1.5 secondi
+            context.job_queue.run_once(
+                self._process_media_group,
+                when=1.5,
+                data={'media_group_id': media_group_id, 'chat_id': message.chat_id},
+                name=job_name,
+                chat_id=message.chat_id,
+                user_id=user_id
+            )
             
-            # Se sono passati meno di 1.5 secondi dall'ultimo aggiornamento, altre foto stanno arrivando
-            if time_since_last < 1.5:
-                logger.info(f"Media group {media_group_id}: altre foto in arrivo, aspetto...")
-                return STATE_WAITING_PRODUCT_NAME
-            
-            # Tutte le foto sono arrivate, salva il gruppo
-            context.user_data['photos'] = context.user_data['media_groups'][media_group_id]['photos']
-            num_photos = len(context.user_data['photos'])
-            logger.info(f"Media group {media_group_id}: completato con {num_photos} foto")
-            
-            # Pulisci i media groups
-            del context.user_data['media_groups'][media_group_id]
+            # Non rispondere subito, aspetta che il job processi tutto
+            return STATE_WAITING_PRODUCT_NAME
         
         # Messaggio singolo (non parte di un media group)
         else:
