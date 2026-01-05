@@ -431,17 +431,17 @@ class AffiliateBot:
                                 media_group.append(InputMediaPhoto(media=photo_id))
                 
                     # Invia il media group al canale
-                    await context.bot.send_media_group(
+                    sent_messages = await context.bot.send_media_group(
                         chat_id=channel_id,
                         media=media_group
                     )
 
-                    # Invia un messaggio con bottone cliccabile per il link
-                    if referral_link:
+                    # Aggiungi il bottone al primo messaggio del media group
+                    if referral_link and sent_messages:
                         label = button_labels.get(lang_code, '🛒 Buy here')
-                        await context.bot.send_message(
+                        await context.bot.edit_message_reply_markup(
                             chat_id=channel_id,
-                            text="🔗 Link diretto:" if lang_code == 'IT' else ("🔗 Direct link:" if lang_code == 'EN' else "🔗 Enlace directo:"),
+                            message_id=sent_messages[0].message_id,
                             reply_markup=InlineKeyboardMarkup([
                                 [InlineKeyboardButton(label, url=referral_link)]
                             ])
