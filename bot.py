@@ -377,6 +377,11 @@ class AffiliateBot:
         for lang_code, channel_info in CHANNELS.items():
             channel_id = channel_info['chat_id']
             channel_name = f"{channel_info['emoji_flag']} {channel_info['name']}"
+            button_labels = {
+                'IT': '🛒 Acquista qui',
+                'EN': '🛒 Buy here',
+                'ES': '🛒 Comprar aquí'
+            }
             
             try:
                 # Genera la caption per questa lingua
@@ -430,6 +435,17 @@ class AffiliateBot:
                         chat_id=channel_id,
                         media=media_group
                     )
+
+                    # Invia un messaggio con bottone cliccabile per il link
+                    if referral_link:
+                        label = button_labels.get(lang_code, '🛒 Buy here')
+                        await context.bot.send_message(
+                            chat_id=channel_id,
+                            text="🔗 Link diretto:" if lang_code == 'IT' else ("🔗 Direct link:" if lang_code == 'EN' else "🔗 Enlace directo:"),
+                            reply_markup=InlineKeyboardMarkup([
+                                [InlineKeyboardButton(label, url=referral_link)]
+                            ])
+                        )
                 finally:
                     # Chiudi tutti i file aperti
                     for f in files_to_close:
